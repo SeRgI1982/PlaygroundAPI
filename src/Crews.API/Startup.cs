@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using Crews.API.Controllers;
 using Crews.API.Data;
 using Crews.API.Data.Entities;
@@ -14,6 +16,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.Mvc.Versioning.Conventions;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Crews.API
@@ -122,21 +125,89 @@ namespace Crews.API
                 context.Database.EnsureCreated();
             }
 
+            // Custom middleware that runs at the start of the pipeline
+            app.UseWhen(context => context.Request.Query.ContainsKey("branch"), HandleBranchAndRejoin);
+
+            // Middleware registration - order is important
+            // https://docs.microsoft.com/en-us/aspnet/core/fundamentals/middleware/index/_static/middleware-pipeline.svg?view=aspnetcore-6.0
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
             }
 
-            app.UseHttpsRedirection();
+            app.UseHttpLogging();
+            app.UseHttpsRedirection(); // Redirects HTTP requests to HTTPS
+                                       //app.UseStaticFiles();    // Returns static files and finish request processing - no authorization checks.
+                                       //In this order, static files are not compressed
 
-            app.UseRouting();
+            //app.UseCookiePolicy();   // Conforms the app to GDPR (RODO) regulations
+            //app.UseHttpLogging();    // Logs info about HTTP request & response
 
-            app.UseAuthentication();
-            app.UseAuthorization();
+            app.UseRouting();          // Routes requests
 
+            // Must appear before any middleware that might check the request culture
+            //app.UseRequestLocalization(); 
+
+            // Those 3 needs to be in exact order
+            //app.UseCors(); // Configure Cross Origin Resource Sharing - Must appear before UseResponseCaching
+            app.UseAuthentication();   // Authenticates the user right before to access secure resource
+            app.UseAuthorization();    // Authorize a user to access secure resource
+
+            //app.UseSession();        // Establishes and maintains session state
+
+            // Those 2 can be with different ordering according to specific scenario
+            //app.UseResponseCompression(); 
+            //app.UseResponseCaching();
+
+            // Adds endpoints (controllers) to the request pipeline
+            // https://docs.microsoft.com/en-us/aspnet/core/fundamentals/middleware/index/_static/mvc-endpoint.svg?view=aspnetcore-6.0
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+            });
+        }
+
+        private void HandleBranchAndRejoin(IApplicationBuilder app)
+        {
+            var logger = app.ApplicationServices.GetRequiredService<ILogger<Program>>();
+
+            app.Use(async (context, next) =>
+            {
+                // STEPS
+                // 1. User calls http://localhost:6600/api/crews?branch=main
+                // 2. Configured app.UseWhen detects branch query string and calls HandleBranchAndRejoin method
+                // 3. Everything before await next(context) is called right before calling Controller action (CrewsController)
+                // 4. Everything after await next(context) is called right after calling Controller action (CrewsController)
+
+                // The logic below can be achieved also by app.
+                Stream originalBody = context.Response.Body;
+
+                try
+                {
+                    var branchVer = context.Request.Query["branch"];
+                    string requestBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
+                    logger.LogInformation($"[BEFORE call main pipeline] Branch used = {branchVer} \n {requestBody}", branchVer);
+
+                    await using var memStream = new MemoryStream();
+                    context.Response.Body = memStream;
+
+                    // Do work that doesn't write to the Response.
+                    // Re-join to the main pipeline
+                    await next(context);
+
+                    // Do other work that doesn't write to the Response.
+                    memStream.Position = 0;
+                    string responseBody = await new StreamReader(memStream).ReadToEndAsync();
+
+                    memStream.Position = 0;
+                    await memStream.CopyToAsync(originalBody);
+
+                    logger.LogInformation($"[AFTER after call main pipeline] Branch used = {branchVer} \n {responseBody}", branchVer);
+                }
+                finally
+                {
+                    context.Response.Body = originalBody;
+                }
             });
         }
 
