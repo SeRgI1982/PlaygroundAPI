@@ -66,19 +66,8 @@ public class AccountController : ControllerBase
             var result = await _signInManager.CheckPasswordSignInAsync(user, model.Password, false);
 
             if (!result.Succeeded) return Unauthorized();
-            
-            // Create the token
-            var claims = await GetValidClaims(user);
-                        
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Value.Key));
-            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            var token = new JwtSecurityToken(
-                _options.Value.Issuer,
-                _options.Value.Audience, 
-                claims, 
-                signingCredentials: credentials,
-                expires: DateTime.UtcNow.AddMinutes(2));
+            var token = await GenerateToken(user);
 
             return Created("", new
             {
@@ -92,6 +81,23 @@ public class AccountController : ControllerBase
             _logger.LogError("Failed to login: {0}", ex);
             return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
+    }
+
+    private async Task<JwtSecurityToken> GenerateToken(User user)
+    {
+        var claims = await GetValidClaims(user);
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Value.Key));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            _options.Value.Issuer,
+            _options.Value.Audience,
+            claims,
+            signingCredentials: credentials,
+            expires: DateTime.UtcNow.AddMinutes(2));
+
+        return token;
     }
 
     private async Task<List<Claim>> GetValidClaims(User user)

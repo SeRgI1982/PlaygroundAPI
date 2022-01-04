@@ -38,6 +38,8 @@ public class CrewsController : ControllerBase
 
     [HttpGet]
     [MapToApiVersion("1.0")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IEnumerable<CrewViewModel>))]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<IEnumerable<CrewViewModel>>> GetCrews(bool includeTrainings = false)
     {
         try
@@ -51,11 +53,12 @@ public class CrewsController : ControllerBase
             _logger.LogError("Failed to get crews: {0}", ex);
             return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
-            
     }
 
     [HttpGet]
     [MapToApiVersion("1.1")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(IEnumerable<CrewViewModel>))]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<IEnumerable<CrewViewModel>>> GetCrews2(bool includeTrainings = false)
     {
         try
@@ -75,10 +78,12 @@ public class CrewsController : ControllerBase
             _logger.LogError("Failed to get crews: {0}", ex);
             return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
-
     }
 
-    [HttpGet("{id}")]
+    [HttpGet("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(CrewViewModel))]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<CrewViewModel>> GetCrew(int id)
     {
         try
